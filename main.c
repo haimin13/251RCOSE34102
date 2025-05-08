@@ -35,17 +35,18 @@ typedef struct {
 } Process;
 
 
-
 int Max(int a, int b);
 void PrintArray(IORequest *arr, short size);
 void PrintProcess(Process *p);
 void FreeMemory(Process *p);
-void CreateProcess(Process *p);
+void CreateProcess(Process *p, int argc, char* argv[]);
+void ManualCreate(Process *p, int idx);
 
+int unfinished = NUM_PROCESS;
 
-void main() {
+void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
-    CreateProcess(p);
+    CreateProcess(p, argc, argv);
     PrintProcess(p);
 
 
@@ -53,16 +54,23 @@ void main() {
     return;
 }
 
-void CreateProcess(Process *p) {
+void CreateProcess(Process *p, int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
     int num_priority = NUM_PROCESS / 2;
 
     for (int i = 0; i < NUM_PROCESS; i++) {
-        p[i].pid = i;
-        p[i].priority = rand() % num_priority + 1;
-        p[i].arrival_time = rand() % MAX_ARRIVAL_TIME;
-        p[i].cpu_burst_time = p[i].remain_cpu_burst_time = rand() % MAX_CPU_BURST_TIME + 1;
-        p[i].io_burst_time = p[i].remain_io_burst_time = rand() % MAX_IO_BURST_TIME + 1;
+        if (argc > 1 && strcmp(argv[1], "manual") == 0) {
+            ManualCreate(p, i);
+        }
+        else {
+            p[i].pid = i;
+            p[i].priority = rand() % num_priority + 1;
+            p[i].arrival_time = rand() % MAX_ARRIVAL_TIME;
+            p[i].cpu_burst_time = rand() % MAX_CPU_BURST_TIME + 1;
+            p[i].io_burst_time = rand() % MAX_IO_BURST_TIME + 1;
+        }
+        p[i].remain_cpu_burst_time = p[i].cpu_burst_time;
+        p[i].remain_io_burst_time = p[i].io_burst_time;
         p[i].waited_time = 0;
         if (p[i].cpu_burst_time > 1) {
             int num_io_request = rand() % (Max(1, p[i].cpu_burst_time / 2) + 1); // 0번에서 max(1, cpu_burst_time / 2)번 발생.
@@ -100,6 +108,35 @@ void CreateProcess(Process *p) {
 
     }
     return;
+}
+
+void ManualCreate(Process* p, int i) {
+    while(1) {
+        int duplicate = 0;
+        printf("Input PID: ");
+        short pid;
+        scanf("%hd", &pid);
+        for (int j = 0; j < i; j++) {
+            if (pid == p[j].pid) {
+                duplicate = 1;
+                printf("duplicated PID! Choose another pid\n");
+                break;
+            }
+        }
+        if (duplicate == 0) {
+            p[i].pid = pid;
+            break;
+        }
+    }
+    printf("Input priority: ");
+    scanf("%hd", &(p[i].priority));
+    printf("Input arrival time (max: %d): ", MAX_ARRIVAL_TIME);
+    scanf("%hd", &(p[i].arrival_time));
+    printf("Input CPU burst time (max: %d): ", MAX_CPU_BURST_TIME);
+    scanf("%hd", &(p[i].cpu_burst_time));
+    printf("Input IO burst time (max: %d): ", MAX_IO_BURST_TIME);
+    scanf("%hd", &(p[i].io_burst_time));
+    printf("\n");
 }
 
 int Max(int a, int b) {
