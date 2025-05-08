@@ -25,6 +25,7 @@ void PrintArray(unsigned short *arr, unsigned short size);
 void PrintProcess(Process p);
 void CreateProcess(Process *p);
 
+
 void main() {
     Process p[NUM_PROCESS];
     CreateProcess(p);
@@ -37,6 +38,7 @@ void main() {
     }
     return;
 }
+
 
 int Max(int a, int b) {
     return (a > b) ? a : b;
