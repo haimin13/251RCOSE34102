@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h>
 
 #define NUM_PROCESS 10
 #define MAX_ARRIVAL_TIME 15
@@ -9,11 +10,6 @@
 #define MAX_IO_BURST_TIME 5
 #define NUM_IO_DEVICES 2
 
-typedef struct {
-    short pid;
-    short priority;
-    struct Node *next;
-} Node;
 
 typedef struct {
     short point;
@@ -34,6 +30,11 @@ typedef struct {
     short waited_time;
 } Process;
 
+typedef struct {
+    Process* process;
+    struct Node *next;
+} Node;
+
 
 int Max(int a, int b);
 void PrintArray(IORequest *arr, short size);
@@ -41,14 +42,30 @@ void PrintProcess(Process *p);
 void FreeMemory(Process *p);
 void CreateProcess(Process *p, int argc, char* argv[]);
 void ManualCreate(Process *p, int idx);
+void FCFS(Process *p);
+void SJF(Process *p, bool preemptive);
+void Priority(Process *p, bool preemptive);
+void RR(Process *p);
 
 int unfinished = NUM_PROCESS;
+Node *ready_queue_head = NULL;
+Node ready_heap_head[NUM_PROCESS];
+Node *io_wait_head[NUM_IO_DEVICES] = {NULL, };
+
 
 void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
     CreateProcess(p, argc, argv);
+    // Process를 arrival time순(FCFS)이나 burst time순(SJF) 혹은 priority순으로 정렬해놔도 좋겠다.
     PrintProcess(p);
 
+
+    FCFS(p);
+    SJF(p, false);         // nonpreemtive SJF
+    SJF(p, true);          // preemtive SJF
+    Priority(p, false);    // nonpreemptive Priority
+    Priority(p, true);     // preemptive Priority
+    RR(p);
 
     FreeMemory(p);
     return;
@@ -111,7 +128,7 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
 }
 
 void ManualCreate(Process* p, int i) {
-    while(1) {
+    while(true) {
         int duplicate = 0;
         printf("Input PID: ");
         short pid;
@@ -138,6 +155,23 @@ void ManualCreate(Process* p, int i) {
     scanf("%hd", &(p[i].io_burst_time));
     printf("\n");
 }
+
+void FCFS(Process *p) {
+    int i = 0;
+    Node* head = ready_queue_head;
+    while (unfinished > 0) {
+        for (int j = 0; j < NUM_PROCESS; j++) {
+            if (p[j].arrival_time == i) 
+                Push(head, &p[j]);
+        }
+        if (head != NULL) {
+            head->process->remain_cpu_burst_time--;
+        }
+    }
+}
+void SJF(Process *p, bool preemptive);
+void Priority(Process *p, bool preemptive);
+void RR(Process *p);
 
 int Max(int a, int b) {
     return (a > b) ? a : b;
