@@ -5,13 +5,14 @@
 #include <stdbool.h>
 
 #define NUM_PROCESS 10
-#define MAX_ARRIVAL_TIME 15
+#define MAX_ARRIVAL_TIME 10
 #define MAX_CPU_BURST_TIME 20
 #define MAX_IO_BURST_TIME 5
 #define NUM_IO_DEVICES 2
+#define TIME_QUANTUM 5
 
 
-typedef struct {
+typedef struct { 
     short point;
     short device;
 } IORequest;
@@ -28,6 +29,7 @@ typedef struct {
     short remain_cpu_burst_time;
     short remain_io_burst_time;
     short waited_time;
+    short finished_time;
 } Process;
 
 typedef struct Node{
@@ -42,16 +44,19 @@ void PrintProcess(Process *p);
 void FreeMemory(Process *p);
 void CreateProcess(Process *p, int argc, char* argv[]);
 void ManualCreate(Process *p, int idx);
-void FCFS(Process *p);
+void ResetProcess(Process *p);
+void Evaluate(Process *p);
+void QueuePush(Node** queue, Process* process);
+void QueuePop(Node** queue);
+void QueueBasedSchedule(Process *p, char mode);
 void SJF(Process *p, bool preemptive);
 void Priority(Process *p, bool preemptive);
-void RR(Process *p);
+
 
 int unfinished = NUM_PROCESS;
 Node *ready_queue = NULL;
 Node ready_heap[NUM_PROCESS];
 Node *io_queue[NUM_IO_DEVICES] = {NULL, };
-
 
 void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
@@ -59,13 +64,13 @@ void main(int argc, char* argv[]) {
     // Process를 arrival time순(FCFS)이나 burst time순(SJF) 혹은 priority순으로 정렬해놔도 좋겠다.
     PrintProcess(p);
 
+    QueueBasedSchedule(p, 'F'); // FCFS Schedule
+    QueueBasedSchedule(p, 'R'); // RR Schedule
 
-    FCFS(p);
     //SJF(p, false);         // nonpreemtive SJF
     //SJF(p, true);          // preemtive SJF
     //Priority(p, false);    // nonpreemptive Priority
     //Priority(p, true);     // preemptive Priority
-    //RR(p);
 
     FreeMemory(p);
     return;
@@ -89,8 +94,9 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
         p[i].remain_cpu_burst_time = p[i].cpu_burst_time;
         p[i].remain_io_burst_time = p[i].io_burst_time;
         p[i].waited_time = 0;
+        p[i].finished_time = 0;
         if (p[i].cpu_burst_time > 1) {
-            int num_io_request = rand() % (Max(1, p[i].cpu_burst_time / 2) + 1); // 0번에서 max(1, cpu_burst_time / 2)번 발생.
+            int num_io_request = rand() % (Max(1, p[i].cpu_burst_time / 3) + 1); // 0번에서 max(1, cpu_burst_time / 3)번 발생.
             p[i].num_io_request = num_io_request;
             p[i].remain_io_request = num_io_request;
             p[i].io_request_points = malloc(sizeof(IORequest) * (num_io_request + 1)); // 계산 편의를 위해 인덱스 0에 가비지 값.
@@ -156,51 +162,118 @@ void ManualCreate(Process* p, int i) {
     printf("\n");
 }
 
-void FCFS(Process *p) {
+void ResetProcess(Process *p) {
+    for (int i = 0; i < NUM_PROCESS; i++) {
+        p[i].remain_io_request = p[i].num_io_request;
+        p[i].remain_cpu_burst_time = p[i].cpu_burst_time;
+        p[i].waited_time = 0;
+        p[i].finished_time = 0;
+    }
+    unfinished = NUM_PROCESS;
+}
+
+void Evaluate(Process *p) {
+    int sum_waiting = 0, sum_turnaround = 0;
+    for (int i = 0; i < NUM_PROCESS; i++) {
+        sum_waiting += p[i].waited_time;
+        sum_turnaround += (p[i].finished_time - p[i].arrival_time);
+    }
+    printf("average waiting time: %.2lf\n", (double)(sum_waiting / NUM_PROCESS));
+    printf("average turnaround time: %.2lf\n", (double)(sum_turnaround / NUM_PROCESS));
+}
+
+void QueuePush(Node** queue, Process* process) {
+    Node *new_node = malloc(sizeof(Node));
+    new_node->process = process;
+    new_node->next = NULL;
+    if (*queue == NULL) {
+        *queue = new_node;
+    }
+    else {
+        Node* cursor = *queue;
+        while (cursor->next != NULL) {
+            cursor = cursor->next;
+        }
+        cursor->next = new_node;
+    }
+}
+
+void QueuePop(Node** queue) {
+    if (*queue == NULL) {
+        printf("Queue is Empty!\n");
+        return;
+    }
+    Node* temp = *queue;
+    *queue = (*queue)->next;
+    free(temp);
+}
+
+void QueueBasedSchedule(Process *p, char mode) {
+    int timeQuantum;
+    if (mode == 'F') {
+        printf("\n\nSTART FCFS SCHEDULING\n\n");
+        timeQuantum = MAX_CPU_BURST_TIME + 1;
+    }
+    else if (mode == 'R') {
+        printf("\n\nSTART RR SCHEDULING\n\n");
+        timeQuantum = TIME_QUANTUM;
+    }
     int time = 0;
+    int time_spent = 0;
     while (unfinished > 0) {
+        printf("time: %d\n", time);
         for (int i = 0; i < NUM_PROCESS; i++) {
-            if (p[i].arrival_time == i) {
-                //Push(ready_queue, &p[i]);
+            if (p[i].arrival_time == time) {
+                QueuePush(&ready_queue, &p[i]);
             }
         }
         if (ready_queue != NULL) {
             Process* ready_head = ready_queue->process;
+            printf("Processing: %d\n",ready_head->pid);
             ready_head->remain_cpu_burst_time--;
+            time_spent++;
             Node* cursor = ready_queue->next;
             while (cursor != NULL) {
                 cursor->process->waited_time++;
                 cursor = cursor->next;
             }
-            for (int i = 0; i < NUM_IO_DEVICES; i++) {
-                if (io_queue[i] != NULL) {
-                    Process* io_head = io_queue[i]->process;
-                    io_head->remain_io_burst_time--;
-                    if (io_head->remain_io_burst_time == 0) {
-                        io_head->remain_io_request--;
-                        io_head->remain_io_burst_time = io_head->io_burst_time;
-                        //Push(ready_queue, &(io_queue[i]->process));
-                        //Pop(io_queue);
-                    }
-                }
-            }
             if (ready_head->remain_cpu_burst_time == 0) {
                 unfinished--;
-                //Pop(ready_queue);
+                ready_head->finished_time = time + 1;
+                QueuePop(&ready_queue);
+                time_spent = 0;
             }
-            else if (ready_head->io_request_points[ready_head->remain_io_request].point == (time + 1)) {
-                //Push(io_queue[ready_head->io_request_points[ready_head->remain_io_request].device], ready_head);
-                //Pop(ready_queue);
+            else if (ready_head->io_request_points[ready_head->remain_io_request].point == (ready_head->remain_cpu_burst_time)) {
+                QueuePop(&ready_queue);
+                QueuePush(&io_queue[ready_head->io_request_points[ready_head->remain_io_request].device], ready_head);
+                time_spent = 0;
+            }
+            else if (time_spent == timeQuantum) { // if mode == 'F', never satisfy this condition.
+                QueuePop(&ready_queue);
+                QueuePush(&ready_queue, ready_head);
+                time_spent = 0;
+            }
+        }
+        for (int i = 0; i < NUM_IO_DEVICES; i++) {
+            if (io_queue[i] != NULL) {
+                Process* io_head = io_queue[i]->process;
+                printf("IOing: %d\n", io_head->pid);
+                io_head->remain_io_burst_time--;
+                if (io_head->remain_io_burst_time == 0) {
+                    io_head->remain_io_request--;
+                    io_head->remain_io_burst_time = io_head->io_burst_time;
+                    QueuePush(&ready_queue, (io_queue[i]->process));
+                    QueuePop(&io_queue[i]);
+                }
             }
         }
         time++;
     }
-    // when all process is finished;
-    //ResetProcess(p);
+    Evaluate(p);
+    ResetProcess(p);
 }
 void SJF(Process *p, bool preemptive);
 void Priority(Process *p, bool preemptive);
-void RR(Process *p);
 
 int Max(int a, int b) {
     return (a > b) ? a : b;
@@ -228,6 +301,7 @@ void PrintProcess(Process *p) {
         printf("remain_cpu_burst_time: %d\n", p[i].remain_cpu_burst_time);
         printf("remain_io_burst_time: %d\n", p[i].remain_io_burst_time);
         printf("waited_time: %d\n", p[i].waited_time);
+        printf("finished_time: %d\n", p[i].finished_time);
         printf("\n");
     }
 }
