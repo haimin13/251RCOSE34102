@@ -30,7 +30,7 @@ typedef struct {
     short waited_time;
 } Process;
 
-typedef struct {
+typedef struct Node{
     Process* process;
     struct Node *next;
 } Node;
@@ -48,9 +48,9 @@ void Priority(Process *p, bool preemptive);
 void RR(Process *p);
 
 int unfinished = NUM_PROCESS;
-Node *ready_queue_head = NULL;
-Node ready_heap_head[NUM_PROCESS];
-Node *io_wait_head[NUM_IO_DEVICES] = {NULL, };
+Node *ready_queue = NULL;
+Node ready_heap[NUM_PROCESS];
+Node *io_queue[NUM_IO_DEVICES] = {NULL, };
 
 
 void main(int argc, char* argv[]) {
@@ -61,11 +61,11 @@ void main(int argc, char* argv[]) {
 
 
     FCFS(p);
-    SJF(p, false);         // nonpreemtive SJF
-    SJF(p, true);          // preemtive SJF
-    Priority(p, false);    // nonpreemptive Priority
-    Priority(p, true);     // preemptive Priority
-    RR(p);
+    //SJF(p, false);         // nonpreemtive SJF
+    //SJF(p, true);          // preemtive SJF
+    //Priority(p, false);    // nonpreemptive Priority
+    //Priority(p, true);     // preemptive Priority
+    //RR(p);
 
     FreeMemory(p);
     return;
@@ -157,17 +157,46 @@ void ManualCreate(Process* p, int i) {
 }
 
 void FCFS(Process *p) {
-    int i = 0;
-    Node* head = ready_queue_head;
+    int time = 0;
     while (unfinished > 0) {
-        for (int j = 0; j < NUM_PROCESS; j++) {
-            if (p[j].arrival_time == i) 
-                Push(head, &p[j]);
+        for (int i = 0; i < NUM_PROCESS; i++) {
+            if (p[i].arrival_time == i) {
+                //Push(ready_queue, &p[i]);
+            }
         }
-        if (head != NULL) {
-            head->process->remain_cpu_burst_time--;
+        if (ready_queue != NULL) {
+            Process* ready_head = ready_queue->process;
+            ready_head->remain_cpu_burst_time--;
+            Node* cursor = ready_queue->next;
+            while (cursor != NULL) {
+                cursor->process->waited_time++;
+                cursor = cursor->next;
+            }
+            for (int i = 0; i < NUM_IO_DEVICES; i++) {
+                if (io_queue[i] != NULL) {
+                    Process* io_head = io_queue[i]->process;
+                    io_head->remain_io_burst_time--;
+                    if (io_head->remain_io_burst_time == 0) {
+                        io_head->remain_io_request--;
+                        io_head->remain_io_burst_time = io_head->io_burst_time;
+                        //Push(ready_queue, &(io_queue[i]->process));
+                        //Pop(io_queue);
+                    }
+                }
+            }
+            if (ready_head->remain_cpu_burst_time == 0) {
+                unfinished--;
+                //Pop(ready_queue);
+            }
+            else if (ready_head->io_request_points[ready_head->remain_io_request].point == (time + 1)) {
+                //Push(io_queue[ready_head->io_request_points[ready_head->remain_io_request].device], ready_head);
+                //Pop(ready_queue);
+            }
         }
+        time++;
     }
+    // when all process is finished;
+    //ResetProcess(p);
 }
 void SJF(Process *p, bool preemptive);
 void Priority(Process *p, bool preemptive);
