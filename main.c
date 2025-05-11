@@ -46,17 +46,22 @@ void CreateProcess(Process *p, int argc, char* argv[]);
 void ManualCreate(Process *p, int idx);
 void ResetProcess(Process *p);
 void Evaluate(Process *p);
+void ProcessIO(char mode, bool preemption);
 void QueuePush(Node** queue, Process* process);
 void QueuePop(Node** queue);
 void QueueBasedSchedule(Process *p, char mode);
-void SJF(Process *p, bool preemptive);
-void Priority(Process *p, bool preemptive);
+void MinHeapBasedSchedule(Process* p, char mode, bool preemption);
+void HeapPush(Process *p, char mode, bool preemption);
+void HeapPop(char mode, bool preemption);
 
 
 int unfinished = NUM_PROCESS;
 Node *ready_queue = NULL;
-Node ready_heap[NUM_PROCESS];
+Process *ready_heap[NUM_PROCESS] = {NULL, };
 Node *io_queue[NUM_IO_DEVICES] = {NULL, };
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
@@ -67,14 +72,19 @@ void main(int argc, char* argv[]) {
     QueueBasedSchedule(p, 'F'); // FCFS Schedule
     QueueBasedSchedule(p, 'R'); // RR Schedule
 
-    //SJF(p, false);         // nonpreemtive SJF
-    //SJF(p, true);          // preemtive SJF
-    //Priority(p, false);    // nonpreemptive Priority
-    //Priority(p, true);     // preemptive Priority
+    // record 저장하는 코드 넣어야함.
+
+    MinHeapBasedSchedule(p, 'S', false);    // nonpreemtive SJF
+    MinHeapBasedSchedule(p, 'S', true);     // preemtive SJF
+    MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
+    MinHeapBasedSchedule(p, 'P', false);    // preemptive Priority
 
     FreeMemory(p);
     return;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
 
 void CreateProcess(Process *p, int argc, char* argv[]) {
     srand((unsigned int)time(NULL));
@@ -182,6 +192,25 @@ void Evaluate(Process *p) {
     printf("average turnaround time: %.2lf\n", (double)(sum_turnaround / NUM_PROCESS));
 }
 
+void ProcessIO(char mode, bool preemption) {
+    for (int i = 0; i < NUM_IO_DEVICES; i++) {
+        if (io_queue[i] != NULL) {
+            Process* io_head = io_queue[i]->process;
+            printf("IOing: %d\n", io_head->pid);
+            io_head->remain_io_burst_time--;
+            if (io_head->remain_io_burst_time == 0) {
+                io_head->remain_io_request--;
+                io_head->remain_io_burst_time = io_head->io_burst_time;
+                if (mode == 'F' || mode == 'R')
+                    QueuePush(&ready_queue, io_queue[i]->process);
+                else if (mode == 'S' || mode == 'P') 
+                    HeapPush(io_queue[i]->process, mode, preemption);
+                QueuePop(&io_queue[i]);
+            }
+        }
+    }
+}
+
 void QueuePush(Node** queue, Process* process) {
     Node *new_node = malloc(sizeof(Node));
     new_node->process = process;
@@ -211,11 +240,11 @@ void QueuePop(Node** queue) {
 void QueueBasedSchedule(Process *p, char mode) {
     int timeQuantum;
     if (mode == 'F') {
-        printf("\n\nSTART FCFS SCHEDULING\n\n");
+        printf("\n\nStart FCFS scheduling\n\n");
         timeQuantum = MAX_CPU_BURST_TIME + 1;
     }
     else if (mode == 'R') {
-        printf("\n\nSTART RR SCHEDULING\n\n");
+        printf("\n\nStart RR scheduling\n\n");
         timeQuantum = TIME_QUANTUM;
     }
     int time = 0;
@@ -243,7 +272,7 @@ void QueueBasedSchedule(Process *p, char mode) {
                 QueuePop(&ready_queue);
                 time_spent = 0;
             }
-            else if (ready_head->io_request_points[ready_head->remain_io_request].point == (ready_head->remain_cpu_burst_time)) {
+            else if (ready_head->io_request_points[ready_head->remain_io_request].point == ready_head->remain_cpu_burst_time) {
                 QueuePop(&ready_queue);
                 QueuePush(&io_queue[ready_head->io_request_points[ready_head->remain_io_request].device], ready_head);
                 time_spent = 0;
@@ -254,26 +283,61 @@ void QueueBasedSchedule(Process *p, char mode) {
                 time_spent = 0;
             }
         }
-        for (int i = 0; i < NUM_IO_DEVICES; i++) {
-            if (io_queue[i] != NULL) {
-                Process* io_head = io_queue[i]->process;
-                printf("IOing: %d\n", io_head->pid);
-                io_head->remain_io_burst_time--;
-                if (io_head->remain_io_burst_time == 0) {
-                    io_head->remain_io_request--;
-                    io_head->remain_io_burst_time = io_head->io_burst_time;
-                    QueuePush(&ready_queue, (io_queue[i]->process));
-                    QueuePop(&io_queue[i]);
-                }
-            }
-        }
+        ProcessIO(mode, false);
         time++;
     }
     Evaluate(p);
     ResetProcess(p);
 }
-void SJF(Process *p, bool preemptive);
-void Priority(Process *p, bool preemptive);
+
+void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
+    if (preemption == true) printf("\n\nStart preemptive ");
+    else printf("\n\nStart nonpreemptive ");
+    if (mode == 'S') printf("SJF scheduling\n\n");
+    else if (mode == 'P') printf("Start Priority scheduling\n\n");
+    
+    int time = 0;
+    while (unfinished > 0) {
+        printf("time: %d\n", time);
+        for (int i = 0; i < NUM_PROCESS; i++) {
+            if (p[i].arrival_time == time) {
+                HeapPush(&p[i], mode, preemption);
+            }
+        }
+        if (ready_heap[0] != NULL) {
+            printf("Processing: %d\n", ready_heap[0]->pid);
+            ready_heap[0]->remain_cpu_burst_time--;
+            int i = 1;
+            while (ready_heap[i] != NULL) {
+                ready_heap[i]->waited_time++;
+                i++;
+            }
+            if (ready_heap[0]->remain_cpu_burst_time == 0) {
+                unfinished--;
+                ready_heap[0]->finished_time = time + 1;
+                HeapPop(mode, preemption);
+            }
+            else if (ready_heap[0]->io_request_points[ready_heap[0]->remain_io_request].point == ready_heap[0]->remain_cpu_burst_time) {
+                HeapPop(mode, preemption);
+                QueuePush(&io_queue[ready_heap[0]->io_request_points[ready_heap[0]->remain_io_request].device], ready_heap[0]);
+            }
+        }
+        ProcessIO(mode, preemption);
+        time++;
+    }
+    Evaluate(p);
+    ResetProcess(p);
+}
+
+void HeapPush(Process *p, char mode, bool preemption) {
+    // if preemption == false and heap is not empty: put them in a buffer and push it when pop
+    // the lower priority value, the higher priority
+    // if mode == S: treat remain_cpu_burst as priority
+
+}
+void HeapPop(char mode, bool preemption) {
+    // if preemption == true: push from buffer to heap and pop.
+}
 
 int Max(int a, int b) {
     return (a > b) ? a : b;
