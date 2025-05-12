@@ -32,10 +32,15 @@ typedef struct {
     short finished_time;
 } Process;
 
-typedef struct Node{
+typedef struct Node {
     Process* process;
     struct Node *next;
 } Node;
+
+typedef struct Heap {
+    Process* arr[NUM_PROCESS];
+    int size;
+} Heap;
 
 
 int Max(int a, int b);
@@ -48,17 +53,19 @@ void ResetProcess(Process *p);
 void Evaluate(Process *p);
 void ProcessIO(char mode, bool preemption);
 void QueuePush(Node** queue, Process* process);
-void QueuePop(Node** queue);
+Process* QueuePop(Node** queue);
 void QueueBasedSchedule(Process *p, char mode);
 void MinHeapBasedSchedule(Process* p, char mode, bool preemption);
-void HeapPush(Process *p, char mode, bool preemption);
-void HeapPop(char mode, bool preemption);
+bool IsFirstBigger(int parent, int child, char mode);
+void HeapBuild(char mode);
+void HeapPop(char mode);
 
 
 int unfinished = NUM_PROCESS;
 Node *ready_queue = NULL;
-Process *ready_heap[NUM_PROCESS] = {NULL, };
 Node *io_queue[NUM_IO_DEVICES] = {NULL, };
+Node *heap_wait_queue = NULL;
+Heap ready_heap = { NULL, };
 
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -67,6 +74,8 @@ void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
     CreateProcess(p, argc, argv);
     // Process를 arrival time순(FCFS)이나 burst time순(SJF) 혹은 priority순으로 정렬해놔도 좋겠다.
+    // total processing time이 매우 길어지거나 process 수가 매우 많으면 매번 프로세스 순회해서
+    // arrival time 체크하는 오버헤드도 상당할 것이기 때문.
     PrintProcess(p);
 
     QueueBasedSchedule(p, 'F'); // FCFS Schedule
@@ -126,8 +135,7 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
             for (j = p[i].cpu_burst_time - 1; j > 0; j--) {
                 if (temp[j] == 1) {
                     p[i].io_request_points[num_io_request].point = j;
-                    p[i].io_request_points[num_io_request].device = rand() % NUM_IO_DEVICES;
-                    num_io_request--;
+                    p[i].io_request_points[num_io_request--].device = rand() % NUM_IO_DEVICES;
                 }
             }
         }
@@ -138,7 +146,6 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
         }
         p[i].io_request_points[0].point = -1;
         p[i].io_request_points[0].device = -1;
-
     }
     return;
 }
@@ -196,7 +203,6 @@ void ProcessIO(char mode, bool preemption) {
     for (int i = 0; i < NUM_IO_DEVICES; i++) {
         if (io_queue[i] != NULL) {
             Process* io_head = io_queue[i]->process;
-            printf("IOing: %d\n", io_head->pid);
             io_head->remain_io_burst_time--;
             if (io_head->remain_io_burst_time == 0) {
                 io_head->remain_io_request--;
@@ -204,7 +210,7 @@ void ProcessIO(char mode, bool preemption) {
                 if (mode == 'F' || mode == 'R')
                     QueuePush(&ready_queue, io_queue[i]->process);
                 else if (mode == 'S' || mode == 'P') 
-                    HeapPush(io_queue[i]->process, mode, preemption);
+                    QueuePush(&heap_wait_queue, io_queue[i]->process);
                 QueuePop(&io_queue[i]);
             }
         }
@@ -227,14 +233,16 @@ void QueuePush(Node** queue, Process* process) {
     }
 }
 
-void QueuePop(Node** queue) {
+Process* QueuePop(Node** queue) {
     if (*queue == NULL) {
         printf("Queue is Empty!\n");
-        return;
+        return NULL;
     }
     Node* temp = *queue;
+    Process* out = (*queue)->process;
     *queue = (*queue)->next;
     free(temp);
+    return out;
 }
 
 void QueueBasedSchedule(Process *p, char mode) {
@@ -250,36 +258,35 @@ void QueueBasedSchedule(Process *p, char mode) {
     int time = 0;
     int time_spent = 0;
     while (unfinished > 0) {
-        printf("time: %d\n", time);
         for (int i = 0; i < NUM_PROCESS; i++) {
             if (p[i].arrival_time == time) {
                 QueuePush(&ready_queue, &p[i]);
             }
         }
         if (ready_queue != NULL) {
-            Process* ready_head = ready_queue->process;
-            printf("Processing: %d\n",ready_head->pid);
-            ready_head->remain_cpu_burst_time--;
+            Process* head = ready_queue->process;
+            head->remain_cpu_burst_time--;
             time_spent++;
             Node* cursor = ready_queue->next;
             while (cursor != NULL) {
                 cursor->process->waited_time++;
                 cursor = cursor->next;
             }
-            if (ready_head->remain_cpu_burst_time == 0) {
+            if (head->remain_cpu_burst_time == 0) {
+                printf("process %d finished\n\n", head->pid);
                 unfinished--;
-                ready_head->finished_time = time + 1;
+                head->finished_time = time + 1;
                 QueuePop(&ready_queue);
                 time_spent = 0;
             }
-            else if (ready_head->io_request_points[ready_head->remain_io_request].point == ready_head->remain_cpu_burst_time) {
+            else if (head->io_request_points[head->remain_io_request].point == head->remain_cpu_burst_time) {
+                QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head);
                 QueuePop(&ready_queue);
-                QueuePush(&io_queue[ready_head->io_request_points[ready_head->remain_io_request].device], ready_head);
                 time_spent = 0;
             }
             else if (time_spent == timeQuantum) { // if mode == 'F', never satisfy this condition.
                 QueuePop(&ready_queue);
-                QueuePush(&ready_queue, ready_head);
+                QueuePush(&ready_queue, head);
                 time_spent = 0;
             }
         }
@@ -298,28 +305,32 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     
     int time = 0;
     while (unfinished > 0) {
-        printf("time: %d\n", time);
         for (int i = 0; i < NUM_PROCESS; i++) {
             if (p[i].arrival_time == time) {
-                HeapPush(&p[i], mode, preemption);
+                QueuePush(&heap_wait_queue, &p[i]);
             }
         }
-        if (ready_heap[0] != NULL) {
-            printf("Processing: %d\n", ready_heap[0]->pid);
-            ready_heap[0]->remain_cpu_burst_time--;
+        if (preemption || ready_heap.size == 0) {
+            HeapBuild(mode);
+        }
+        if (ready_heap.arr[0] != NULL) {
+            Process* head = ready_heap.arr[0];
+            head->remain_cpu_burst_time--;
             int i = 1;
-            while (ready_heap[i] != NULL) {
-                ready_heap[i]->waited_time++;
+            while (ready_heap.arr[i] != NULL) {
+                ready_heap.arr[i]->waited_time++;
                 i++;
+                if (i >= ready_heap.size) break;
             }
-            if (ready_heap[0]->remain_cpu_burst_time == 0) {
+            if (head->remain_cpu_burst_time == 0) {
+                printf("process %d finished\n\n", head->pid);
                 unfinished--;
-                ready_heap[0]->finished_time = time + 1;
-                HeapPop(mode, preemption);
+                head->finished_time = time + 1;
+                HeapPop(mode);
             }
-            else if (ready_heap[0]->io_request_points[ready_heap[0]->remain_io_request].point == ready_heap[0]->remain_cpu_burst_time) {
-                HeapPop(mode, preemption);
-                QueuePush(&io_queue[ready_heap[0]->io_request_points[ready_heap[0]->remain_io_request].device], ready_heap[0]);
+            else if (head->io_request_points[head->remain_io_request].point == head->remain_cpu_burst_time) {
+                QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head);
+                HeapPop(mode);
             }
         }
         ProcessIO(mode, preemption);
@@ -329,14 +340,59 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     ResetProcess(p);
 }
 
-void HeapPush(Process *p, char mode, bool preemption) {
-    // if preemption == false and heap is not empty: put them in a buffer and push it when pop
-    // the lower priority value, the higher priority
-    // if mode == S: treat remain_cpu_burst as priority
-
+bool IsFirstBigger(int parent, int child, char mode) {
+    if (mode == 'S')
+        return (ready_heap.arr[parent]->remain_cpu_burst_time > ready_heap.arr[child]->remain_cpu_burst_time) ? true: false;
+    else if (mode == 'P')
+        return (ready_heap.arr[parent]->priority > ready_heap.arr[child]->priority) ? true: false;
 }
-void HeapPop(char mode, bool preemption) {
-    // if preemption == true: push from buffer to heap and pop.
+
+void HeapBuild(char mode){
+    while (heap_wait_queue != NULL) {
+        if (ready_heap.size >= NUM_PROCESS) {
+            printf("\nheap is FULL. cannot insert.\n\n");
+            return;
+        }
+        ready_heap.arr[ready_heap.size] = QueuePop(&heap_wait_queue);
+        int child = ready_heap.size;
+        while (child > 0) {
+            int parent = (child - 1) / 2;
+            if (IsFirstBigger(parent, child, mode)) { // first가 크면 true, second가 크면 false
+                Process* temp = ready_heap.arr[child];
+                ready_heap.arr[child] = ready_heap.arr[parent];
+                ready_heap.arr[parent] = temp;
+                child = parent;
+            }
+            else break;
+        }
+        ready_heap.size++;
+    }
+}
+
+void HeapPop(char mode) {
+    if (ready_heap.size == 0) {
+        printf("\nheap is EMPTY. cannot delete.\n\n");
+        return;
+    }
+    ready_heap.arr[0] = ready_heap.arr[ready_heap.size - 1];
+    ready_heap.arr[ready_heap.size - 1] = NULL;
+    ready_heap.size--;
+    int parent = 0;
+    while (parent < (ready_heap.size / 2)) {
+        int first_child = 2 * parent + 1;
+        int second_child = 2 * parent + 2;
+        int child = first_child;
+        if (second_child < ready_heap.size)
+            child = IsFirstBigger(first_child, second_child, mode) ? second_child: first_child;
+
+        if (IsFirstBigger(parent, child, mode)) { // first가 크면 true, second가 크면 false
+            Process* temp = ready_heap.arr[child];
+            ready_heap.arr[child] = ready_heap.arr[parent];
+            ready_heap.arr[parent] = temp;
+            parent = child;
+        }
+        else break;
+    }
 }
 
 int Max(int a, int b) {
