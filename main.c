@@ -7,7 +7,8 @@
 #define NUM_PROCESS 10
 #define MAX_ARRIVAL_TIME 10
 #define MAX_CPU_BURST_TIME 20
-#define MAX_IO_BURST_TIME 5
+#define MAX_IO_BURST_TIME 3
+#define MAX_IO_REQUEST 3
 #define NUM_IO_DEVICES 2
 #define TIME_QUANTUM 5
 
@@ -44,6 +45,7 @@ typedef struct Heap {
 
 
 int Max(int a, int b);
+int Min(int a, int b);
 void PrintArray(IORequest *arr, short size);
 void PrintProcess(Process *p);
 void FreeMemory(Process *p);
@@ -117,7 +119,7 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
         p[i].waited_time = 0;
         p[i].finished_time = 0;
         if (p[i].cpu_burst_time > 1) {
-            int num_io_request = rand() % (Max(1, p[i].cpu_burst_time / 3) + 1); // 0번에서 max(1, cpu_burst_time / 3)번 발생.
+            int num_io_request = rand() % (Min(MAX_IO_REQUEST, Max(1, p[i].cpu_burst_time - 2)) + 1); // 0번에서 가능한 경우 최대 3번 발생.
             p[i].num_io_request = num_io_request;
             p[i].remain_io_request = num_io_request;
             p[i].io_request_points = malloc(sizeof(IORequest) * (num_io_request + 1)); // 계산 편의를 위해 인덱스 0에 가비지 값.
@@ -401,6 +403,10 @@ void HeapPop(char mode) {
 
 int Max(int a, int b) {
     return (a > b) ? a : b;
+}
+
+int Min(int a, int b) {
+    return (a <= b) ? a: b; 
 }
 
 void PrintArray(IORequest *arr, short size) {
