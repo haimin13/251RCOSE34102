@@ -4,11 +4,11 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define NUM_PROCESS 2
+#define NUM_PROCESS 5
 #define MAX_ARRIVAL_TIME 10
 #define MAX_CPU_BURST_TIME 20
 #define MAX_IO_BURST_TIME 3
-#define MAX_IO_REQUEST 0
+#define MAX_IO_REQUEST 1
 #define NUM_IO_DEVICES 2
 #define TIME_QUANTUM 1
 
@@ -156,23 +156,6 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
 }
 
 void ManualCreate(Process* p, int i) {
-    while(true) {
-        int duplicate = 0;
-        printf("Input PID: ");
-        short pid;
-        scanf("%hd", &pid);
-        for (int j = 0; j < i; j++) {
-            if (pid == p[j].pid) {
-                duplicate = 1;
-                printf("duplicated PID! Choose another pid\n");
-                break;
-            }
-        }
-        if (duplicate == 0) {
-            p[i].pid = pid;
-            break;
-        }
-    }
     printf("Input priority: ");
     scanf("%hd", &(p[i].priority));
     printf("Input arrival time (max: %d): ", MAX_ARRIVAL_TIME);
@@ -197,7 +180,6 @@ void ResetProcess(Process *p) {
 void Evaluate(Process *p) {
     int sum_waiting = 0, sum_turnaround = 0;
     for (int i = 0; i < NUM_PROCESS; i++) {
-        printf("%d ", p[i].waited_time);
         sum_waiting += p[i].waited_time;
         sum_turnaround += (p[i].finished_time - p[i].arrival_time);
     }
@@ -328,6 +310,11 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
                 ready_heap.arr[i]->waited_time++;
                 i++;
                 if (i >= ready_heap.size) break;
+            }
+            Node* cursor = heap_wait_queue;
+            while (cursor != NULL) {
+                cursor->process->waited_time++;
+                cursor = cursor->next;
             }
             ProcessIO(mode, preemption);
             if (head->remain_cpu_burst_time == 0) {
