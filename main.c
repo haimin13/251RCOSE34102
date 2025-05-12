@@ -86,7 +86,9 @@ void main(int argc, char* argv[]) {
     MinHeapBasedSchedule(p, 'S', false);    // nonpreemtive SJF
     MinHeapBasedSchedule(p, 'S', true);     // preemtive SJF
     MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
-    MinHeapBasedSchedule(p, 'P', false);    // preemptive Priority
+    MinHeapBasedSchedule(p, 'P', true);    // preemptive Priority
+
+    // 과정 프린팅하는 코드 작성 필요
 
     FreeMemory(p);
     return;
@@ -272,6 +274,7 @@ void QueueBasedSchedule(Process *p, char mode) {
                 cursor->process->waited_time++;
                 cursor = cursor->next;
             }
+            ProcessIO(mode, false);
             if (head->remain_cpu_burst_time == 0) {
                 printf("process %d finished\n\n", head->pid);
                 unfinished--;
@@ -290,7 +293,7 @@ void QueueBasedSchedule(Process *p, char mode) {
                 time_spent = 0;
             }
         }
-        ProcessIO(mode, false);
+        else ProcessIO(mode, false);
         time++;
     }
     Evaluate(p);
@@ -322,6 +325,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
                 i++;
                 if (i >= ready_heap.size) break;
             }
+            ProcessIO(mode, preemption);
             if (head->remain_cpu_burst_time == 0) {
                 printf("process %d finished\n\n", head->pid);
                 unfinished--;
@@ -333,7 +337,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
                 HeapPop(mode);
             }
         }
-        ProcessIO(mode, preemption);
+        else ProcessIO(mode, preemption);
         time++;
     }
     Evaluate(p);
