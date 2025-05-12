@@ -4,13 +4,13 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define NUM_PROCESS 10
+#define NUM_PROCESS 2
 #define MAX_ARRIVAL_TIME 10
 #define MAX_CPU_BURST_TIME 20
 #define MAX_IO_BURST_TIME 3
-#define MAX_IO_REQUEST 3
+#define MAX_IO_REQUEST 0
 #define NUM_IO_DEVICES 2
-#define TIME_QUANTUM 5
+#define TIME_QUANTUM 1
 
 
 typedef struct { 
@@ -106,14 +106,15 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
     for (int i = 0; i < NUM_PROCESS; i++) {
         if (argc > 1 && strcmp(argv[1], "manual") == 0) {
             ManualCreate(p, i);
+            // NUM_PROCESS, MAX값들도 manually set 할 수 있게 바꿔야 하나
         }
         else {
-            p[i].pid = i;
             p[i].priority = rand() % num_priority + 1;
             p[i].arrival_time = rand() % MAX_ARRIVAL_TIME;
             p[i].cpu_burst_time = rand() % MAX_CPU_BURST_TIME + 1;
             p[i].io_burst_time = rand() % MAX_IO_BURST_TIME + 1;
         }
+        p[i].pid = i;
         p[i].remain_cpu_burst_time = p[i].cpu_burst_time;
         p[i].remain_io_burst_time = p[i].io_burst_time;
         p[i].waited_time = 0;
@@ -196,11 +197,12 @@ void ResetProcess(Process *p) {
 void Evaluate(Process *p) {
     int sum_waiting = 0, sum_turnaround = 0;
     for (int i = 0; i < NUM_PROCESS; i++) {
+        printf("%d ", p[i].waited_time);
         sum_waiting += p[i].waited_time;
         sum_turnaround += (p[i].finished_time - p[i].arrival_time);
     }
-    printf("average waiting time: %.2lf\n", (double)(sum_waiting / NUM_PROCESS));
-    printf("average turnaround time: %.2lf\n", (double)(sum_turnaround / NUM_PROCESS));
+    printf("average waiting time: %.2lf\n", (double)sum_waiting / NUM_PROCESS);
+    printf("average turnaround time: %.2lf\n", (double)sum_turnaround / NUM_PROCESS);
 }
 
 void ProcessIO(char mode, bool preemption) {
@@ -278,7 +280,7 @@ void QueueBasedSchedule(Process *p, char mode) {
             }
             ProcessIO(mode, false);
             if (head->remain_cpu_burst_time == 0) {
-                printf("process %d finished\n\n", head->pid);
+                printf("process %d finished at time: %d\n\n", head->pid, time+1);
                 unfinished--;
                 head->finished_time = time + 1;
                 QueuePop(&ready_queue);
@@ -329,7 +331,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
             }
             ProcessIO(mode, preemption);
             if (head->remain_cpu_burst_time == 0) {
-                printf("process %d finished\n\n", head->pid);
+                printf("process %d finished at time: %d\n\n", head->pid, time + 1);
                 unfinished--;
                 head->finished_time = time + 1;
                 HeapPop(mode);
@@ -382,7 +384,7 @@ void HeapPop(char mode) {
     }
     ready_heap.arr[0] = ready_heap.arr[ready_heap.size - 1];
     ready_heap.arr[ready_heap.size - 1] = NULL;
-    ready_heap.size--;
+    ready_heap.size--; 
     int parent = 0;
     while (parent < (ready_heap.size / 2)) {
         int first_child = 2 * parent + 1;
