@@ -53,7 +53,7 @@ void CreateProcess(Process *p, int argc, char* argv[]);
 void ManualCreate(Process *p, int idx);
 void ResetProcess(Process *p);
 void Evaluate(Process *p);
-void ProcessIO(char mode, bool preemption);
+void ProcessIO(char mode);
 void QueuePush(Node** queue, Process* process);
 Process* QueuePop(Node** queue);
 void QueueBasedSchedule(Process *p, char mode);
@@ -75,32 +75,31 @@ char reason[][30] = {
     "(I/O Requested)",
     "(Time Slice Expired)",
     "(Ready Queue Filled)",
-    "(All Process Finished)",
-    "(Preempted)"
+    "(Preempted)",
+    "(All Process Finished)"
 };
 
-
 /////////////////////////////////////////////////////////////////////////////////////////
+
+// 전체적으로 주석 추가하기
 
 void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
     CreateProcess(p, argc, argv);
-    // Process를 arrival time순(FCFS)이나 burst time순(SJF) 혹은 priority순으로 정렬해놔도 좋겠다.
+    // Process를 arrival time순으로 정렬해놔도 좋겠다.
     // total processing time이 매우 길어지거나 process 수가 매우 많으면 매번 프로세스 순회해서
     // arrival time 체크하는 오버헤드도 상당할 것이기 때문.
+
+    // process printing 예쁘게 하자
     PrintProcess(p);
 
-    //QueueBasedSchedule(p, 'F'); // FCFS Schedule
-    //QueueBasedSchedule(p, 'R'); // RR Schedule
-
-    // record 저장하는 코드 넣어야함.
+    QueueBasedSchedule(p, 'F'); // FCFS Schedule
+    QueueBasedSchedule(p, 'R'); // RR Schedule
 
     MinHeapBasedSchedule(p, 'S', false);    // nonpreemtive SJF
-    //MinHeapBasedSchedule(p, 'S', true);     // preemtive SJF
-    //MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
-    //MinHeapBasedSchedule(p, 'P', true);    // preemptive Priority
-
-    // 과정 프린팅하는 코드 작성 필요
+    MinHeapBasedSchedule(p, 'S', true);     // preemtive SJF
+    MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
+    MinHeapBasedSchedule(p, 'P', true);    // preemptive Priority
 
     FreeMemory(p);
     return;
@@ -193,11 +192,11 @@ void Evaluate(Process *p) {
         sum_waiting += p[i].waited_time;
         sum_turnaround += (p[i].finished_time - p[i].arrival_time);
     }
-    printf("average waiting time: %.2lf\n", (double)sum_waiting / NUM_PROCESS);
+    printf("\naverage waiting time: %.2lf\n", (double)sum_waiting / NUM_PROCESS);
     printf("average turnaround time: %.2lf\n", (double)sum_turnaround / NUM_PROCESS);
 }
 
-void ProcessIO(char mode, bool preemption) {
+void ProcessIO(char mode) {
     for (int i = 0; i < NUM_IO_DEVICES; i++) {
         if (io_queue[i] != NULL) {
             Process* io_head = io_queue[i]->process;
@@ -277,42 +276,44 @@ void QueueBasedSchedule(Process *p, char mode) {
                 cursor->process->waited_time++;
                 cursor = cursor->next;
             }
-            ProcessIO(mode, false);
+            ProcessIO(mode);
 
             cur = head->pid;
-            if (prev == -1) printf("%3d |-------- %s\n", time, reason[4]);
+            if (prev == -1) printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
 
             if (head->remain_cpu_burst_time == 0) {
                 unfinished--;
                 head->finished_time = time + 1;
                 QueuePop(&ready_queue);
                 time_spent = 0;
-                circum = 1;
-                if (unfinished == 0) circum = 6;
+                circum = 1; // process finished
+                if (unfinished == 0) circum = 6;    // all process finished
             }
             else if (head->io_request_points[head->remain_io_request].point == head->remain_cpu_burst_time) {
                 QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head);
                 QueuePop(&ready_queue);
                 time_spent = 0;
-                circum = 2;
+                circum = 2; // I/O requested
             }
             else if (time_spent == timeQuantum) { // if mode == 'F', never satisfy this condition.
                 QueuePop(&ready_queue);
                 QueuePush(&ready_queue, head);
                 time_spent = 0;
-                circum = 3;
+                circum = 3; // time slice expired
             }
-            else circum = 0;
         }
         else {
-            ProcessIO(mode, false);
+            ProcessIO(mode);
             cur = -1;
         }
         if (prev != cur) {
             if (cur == -1) printf("    | idle\n");
             else printf("    | %d\n", cur);
         }
-        if (circum) printf("%3d |-------- %s\n", time + 1, reason[circum]);
+        if (circum) {
+            printf("%3d |-------- %s\n", time + 1, reason[circum]);
+            circum = 0;
+        }
         prev = cur;
         time++;
     }
@@ -330,9 +331,9 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     int cur = -1;
     int circum = 0;
     int time = 0;
-    bool popped = false;
+    bool popped = true;
 
-    printf("%3d |-------- %s\n", time, reason[circum]);
+    printf("%3d |-------- %s\n", time, reason[0]);
     while (unfinished > 0) {
         for (int i = 0; i < NUM_PROCESS; i++) {
             if (p[i].arrival_time == time) {
@@ -344,7 +345,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
         }
         if (ready_heap.arr[0] != NULL) {
             Process* head = ready_heap.arr[0];
-
+ 
             head->remain_cpu_burst_time--;
             int i = 1;
             while (ready_heap.arr[i] != NULL) {
@@ -353,16 +354,16 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
                 if (i >= ready_heap.size) break;
             }
             Node* cursor = heap_wait_queue;
-            while (cursor != NULL) {
+            while (cursor != NULL) { 
                 cursor->process->waited_time++;
                 cursor = cursor->next;
             }
-            ProcessIO(mode, preemption);
+            ProcessIO(mode);
 
             cur = head->pid;
-            if (prev == -1) printf("%3d |-------- %s\n", time, reason[4]);
+            if (prev == -1) printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
             else if (!popped && (prev != cur)) {
-                printf("%3d |-------- %s\n", time, reason[5]);
+                printf("%3d |-------- %s\n", time, reason[5]);  // preempted
             }
 
             if (head->remain_cpu_burst_time == 0) {
@@ -370,26 +371,29 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
                 head->finished_time = time + 1;
                 HeapPop(mode);
                 popped = true;
-                circum = 1;
-                if (unfinished == 0) circum = 6;
+                circum = 1; // process finished
+                if (unfinished == 0) circum = 6; // all process finished
             }
             else if (head->io_request_points[head->remain_io_request].point == head->remain_cpu_burst_time) {
                 QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head);
                 HeapPop(mode);
                 popped = true;
-                circum = 2;
+                circum = 2; // I/O requested
             }
             else popped = false;
         }
         else {
-            ProcessIO(mode, preemption);
+            ProcessIO(mode);
             cur = -1;
         }
         if (prev != cur) {
             if (cur == -1) printf("    | idle\n");
             else printf("    | %d\n", cur);
         }
-        if (circum) printf("%3d |-------- %s\n", time + 1, reason[circum]);
+        if (circum) {
+            printf("%3d |-------- %s\n", time + 1, reason[circum]);
+            circum = 0;
+        }
         prev = cur;
         time++;
     }
