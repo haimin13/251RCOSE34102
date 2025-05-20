@@ -48,6 +48,7 @@ int Max(int a, int b);
 int Min(int a, int b);
 void PrintArray(IORequest *arr, short size);
 void PrintProcess(Process *p);
+int CompareArrival(const void* first, const void* second);
 void FreeMemory(Process *p);
 void CreateProcess(Process *p, int argc, char* argv[]);
 void ManualCreate(Process *p, int idx);
@@ -90,7 +91,10 @@ void main(int argc, char* argv[]) {
     // total processing time이 매우 길어지거나 process 수가 매우 많으면 매번 프로세스 순회해서
     // arrival time 체크하는 오버헤드도 상당할 것이기 때문.
 
-    // process printing 예쁘게 하자
+    PrintProcess(p);
+
+    // Process arrival check overhead를 줄이기 위한 함수
+    qsort(p, NUM_PROCESS, sizeof(Process), CompareArrival);
     PrintProcess(p);
 
     QueueBasedSchedule(p, 'F'); // FCFS Schedule
@@ -257,15 +261,18 @@ void QueueBasedSchedule(Process *p, char mode) {
     int circum = 0;
     int time = 0;
     int time_spent = 0;
+    int arrived = 0;
 
     printf("time| Process\n");
     printf("%3d |-------- %s\n", time, reason[0]);
 
     while (unfinished > 0) {
-        for (int i = 0; i < NUM_PROCESS; i++) {
-            if (p[i].arrival_time == time) {
-                QueuePush(&ready_queue, &p[i]);
+        while (arrived < NUM_PROCESS) {
+            if (p[arrived].arrival_time == time) {
+                QueuePush(&ready_queue, &p[arrived]);
+                arrived++;
             }
+            else break;
         }
         if (ready_queue != NULL) {
             Process* head = ready_queue->process;
@@ -298,6 +305,7 @@ void QueueBasedSchedule(Process *p, char mode) {
             }
             else if (time_spent == timeQuantum) { // if mode == 'F', never satisfy this condition.
                 QueuePop(&ready_queue);
+                if (ready_queue == NULL) 
                 QueuePush(&ready_queue, head);
                 time_spent = 0;
                 circum = 3; // time slice expired
@@ -332,15 +340,18 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     int cur = -1;
     int circum = 0;
     int time = 0;
+    int arrived = 0;
     bool popped = true;
 
     printf("time| Process\n");
     printf("%3d |-------- %s\n", time, reason[0]);
     while (unfinished > 0) {
-        for (int i = 0; i < NUM_PROCESS; i++) {
-            if (p[i].arrival_time == time) {
-                QueuePush(&heap_wait_queue, &p[i]);
+        while (arrived < NUM_PROCESS) {
+            if (p[arrived].arrival_time == time) {
+                QueuePush(&heap_wait_queue, &p[arrived]);
+                arrived++;
             }
+            else break;
         }
         if (preemption || ready_heap.size == 0 || popped) {
             HeapBuild(mode);
@@ -483,6 +494,12 @@ void PrintProcess(Process *p) {
             p[i].arrival_time, p[i].cpu_burst_time, p[i].num_io_request);
     }
     printf("---------------------------------------------------------\n\n");
+}
+
+int CompareArrival(const void* first, const void* second) {
+    short at_a = ((Process *)first)->arrival_time;
+    short at_b = ((Process *)second)->arrival_time;
+    return at_a - at_b;
 }
 
 void FreeMemory(Process *p) {
