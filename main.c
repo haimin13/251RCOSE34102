@@ -258,6 +258,7 @@ void QueueBasedSchedule(Process *p, char mode) {
     int time = 0;
     int time_spent = 0;
 
+    printf("time| Process\n");
     printf("%3d |-------- %s\n", time, reason[0]);
 
     while (unfinished > 0) {
@@ -308,7 +309,7 @@ void QueueBasedSchedule(Process *p, char mode) {
         }
         if (prev != cur) {
             if (cur == -1) printf("    | idle\n");
-            else printf("    | %d\n", cur);
+            else printf("    | P_%d\n", cur);
         }
         if (circum) {
             printf("%3d |-------- %s\n", time + 1, reason[circum]);
@@ -333,6 +334,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     int time = 0;
     bool popped = true;
 
+    printf("time| Process\n");
     printf("%3d |-------- %s\n", time, reason[0]);
     while (unfinished > 0) {
         for (int i = 0; i < NUM_PROCESS; i++) {
@@ -388,7 +390,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
         }
         if (prev != cur) {
             if (cur == -1) printf("    | idle\n");
-            else printf("    | %d\n", cur);
+            else printf("    | P_%d\n", cur);
         }
         if (circum) {
             printf("%3d |-------- %s\n", time + 1, reason[circum]);
@@ -473,22 +475,14 @@ void PrintArray(IORequest *arr, short size) {
 }
 
 void PrintProcess(Process *p) {
+    printf("---------------------------------------------------------\n");
+    printf("| PID | Priority | Arrival | Burst time | # I/O Request |\n");
     for (int i = 0; i < NUM_PROCESS; i++) {
-        printf("pid: %d\n", p[i].pid);
-        printf("priority: %d\n", p[i].priority);
-        printf("arrival_time: %d\n", p[i].arrival_time);
-        printf("cpu_burst_time: %d\n", p[i].cpu_burst_time);
-        printf("io_burst_time: %d\n", p[i].io_burst_time);
-        printf("num_io_request: %d\n", p[i].num_io_request);
-        printf("io_request_points: ");
-        PrintArray(p[i].io_request_points, p[i].num_io_request + 1);
-        printf("remain_io_request: %d\n", p[i].remain_io_request);
-        printf("remain_cpu_burst_time: %d\n", p[i].remain_cpu_burst_time);
-        printf("remain_io_burst_time: %d\n", p[i].remain_io_burst_time);
-        printf("waited_time: %d\n", p[i].waited_time);
-        printf("finished_time: %d\n", p[i].finished_time);
-        printf("\n");
+        printf("|-------------------------------------------------------|\n");
+        printf("| %3d | %8d | %7d | %10d | %13d |\n", p[i].pid, p[i].priority,
+            p[i].arrival_time, p[i].cpu_burst_time, p[i].num_io_request);
     }
+    printf("---------------------------------------------------------\n\n");
 }
 
 void FreeMemory(Process *p) {
