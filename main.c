@@ -10,7 +10,7 @@
 #define MAX_IO_BURST_TIME 3
 #define MAX_IO_REQUEST 3
 #define NUM_IO_DEVICES 2
-#define TIME_QUANTUM 4
+#define TIME_QUANTUM 3
 
 
 typedef struct {  
@@ -62,6 +62,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption);
 bool IsFirstBigger(int parent, int child, char mode);
 void HeapBuild(char mode);
 void HeapPop(char mode);
+void CompareScheduleAlgorithms();
 
 
 int unfinished = NUM_PROCESS;
@@ -69,9 +70,11 @@ Node *ready_queue = NULL;
 Node *io_queue[NUM_IO_DEVICES] = {NULL, };
 Node *heap_wait_queue = NULL;
 Heap ready_heap = { NULL, };
+double performance[6][2];
+int idx = 0;
 
 char reason[][30] = {
-    "(Scheduler Start)",
+    "(Scheduling Start)",
     "(Process Finished)",
     "(I/O Requested)",
     "(Time Slice Expired)",
@@ -87,13 +90,9 @@ char reason[][30] = {
 void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
     CreateProcess(p, argc, argv);
-    // Process를 arrival time순으로 정렬해놔도 좋겠다.
-    // total processing time이 매우 길어지거나 process 수가 매우 많으면 매번 프로세스 순회해서
-    // arrival time 체크하는 오버헤드도 상당할 것이기 때문.
-
     PrintProcess(p);
 
-    // Process arrival check overhead를 줄이기 위한 함수
+    // Process arrival check overhead를 줄이기 위해 정렬
     qsort(p, NUM_PROCESS, sizeof(Process), CompareArrival);
     PrintProcess(p);
 
@@ -105,6 +104,7 @@ void main(int argc, char* argv[]) {
     MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
     MinHeapBasedSchedule(p, 'P', true);    // preemptive Priority
 
+    CompareScheduleAlgorithms();
     FreeMemory(p);
     return;
 }
@@ -125,9 +125,9 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
             p[i].priority = rand() % num_priority + 1;
             p[i].arrival_time = rand() % MAX_ARRIVAL_TIME;
             p[i].cpu_burst_time = rand() % MAX_CPU_BURST_TIME + 1;
-            p[i].io_burst_time = rand() % MAX_IO_BURST_TIME + 1;
         }
         p[i].pid = i;
+        p[i].io_burst_time = rand() % MAX_IO_BURST_TIME + 1;
         p[i].remain_cpu_burst_time = p[i].cpu_burst_time;
         p[i].remain_io_burst_time = p[i].io_burst_time;
         p[i].waited_time = 0;
@@ -175,8 +175,6 @@ void ManualCreate(Process* p, int i) {
     scanf("%hd", &(p[i].arrival_time));
     printf("Input CPU burst time (max: %d): ", MAX_CPU_BURST_TIME);
     scanf("%hd", &(p[i].cpu_burst_time));
-    printf("Input IO burst time (max: %d): ", MAX_IO_BURST_TIME);
-    scanf("%hd", &(p[i].io_burst_time));
     printf("\n");
 }
 
@@ -196,8 +194,15 @@ void Evaluate(Process *p) {
         sum_waiting += p[i].waited_time;
         sum_turnaround += (p[i].finished_time - p[i].arrival_time);
     }
-    printf("\naverage waiting time: %.2lf\n", (double)sum_waiting / NUM_PROCESS);
-    printf("average turnaround time: %.2lf\n", (double)sum_turnaround / NUM_PROCESS);
+    double avg_wait = (double)sum_waiting / NUM_PROCESS;
+    double avg_turnaround = (double)sum_turnaround / NUM_PROCESS;
+    printf("\naverage waiting time: %.2lf\n", avg_wait);
+    printf("average turnaround time: %.2lf\n", avg_turnaround);
+    printf("==============================================\n\n");
+
+    performance[idx][0] = avg_wait;
+    performance[idx][1] = avg_turnaround;
+    idx++;
 }
 
 void ProcessIO(char mode) {
@@ -249,11 +254,11 @@ Process* QueuePop(Node** queue) {
 void QueueBasedSchedule(Process *p, char mode) {
     int timeQuantum;
     if (mode == 'F') {
-        printf("\n\nStart FCFS scheduling\n\n");
+        printf("\nStart FCFS scheduling\n\n");
         timeQuantum = MAX_CPU_BURST_TIME + 1;
     }
     else if (mode == 'R') {
-        printf("\n\nStart RR scheduling\n\n");
+        printf("\nStart RR scheduling\n\n");
         timeQuantum = TIME_QUANTUM;
     }
     int prev = -2;
@@ -305,7 +310,6 @@ void QueueBasedSchedule(Process *p, char mode) {
             }
             else if (time_spent == timeQuantum) { // if mode == 'F', never satisfy this condition.
                 QueuePop(&ready_queue);
-                if (ready_queue == NULL) 
                 QueuePush(&ready_queue, head);
                 time_spent = 0;
                 circum = 3; // time slice expired
@@ -321,6 +325,9 @@ void QueueBasedSchedule(Process *p, char mode) {
         }
         if (circum) {
             printf("%3d |-------- %s\n", time + 1, reason[circum]);
+            // slice expired인 경우 다음 반복에서 prev != cur를 반드시 참으로 하여 pid 출력하도록
+            // expired 이후에 똑같은 프로세스 실행하더라도 출력.
+            if (circum == 3) cur = -2;  
             circum = 0;
         }
         prev = cur;
@@ -331,8 +338,8 @@ void QueueBasedSchedule(Process *p, char mode) {
 }
 
 void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
-    if (preemption == true) printf("\n\nStart preemptive ");
-    else printf("\n\nStart nonpreemptive ");
+    if (preemption == true) printf("\nStart preemptive ");
+    else printf("\nStart nonpreemptive ");
     if (mode == 'S') printf("SJF scheduling\n\n");
     else if (mode == 'P') printf("Start Priority scheduling\n\n");
     
@@ -506,4 +513,22 @@ void FreeMemory(Process *p) {
     for (int i = 0; i < NUM_PROCESS; i++) {
         free(p[i].io_request_points);
     }
+}
+
+void CompareScheduleAlgorithms() {
+    printf("--------------------------------------------------------------\n");
+    printf("| Algorithm        | Avg. waited time | Avg. turnaround time |\n");
+    printf("|------------------------------------------------------------|\n");
+    printf("| FCFS             | %16.3lf | %20.3lf |\n", performance[0][0], performance[0][1]);
+    printf("|------------------------------------------------------------|\n");
+    printf("| Round Robin      | %16.3lf | %20.3lf |\n", performance[1][0], performance[1][1]);
+    printf("|------------------------------------------------------------|\n");
+    printf("| non-pre SJF      | %16.3lf | %20.3lf |\n", performance[2][0], performance[2][1]);
+    printf("|------------------------------------------------------------|\n");
+    printf("| preempt SJF      | %16.3lf | %20.3lf |\n", performance[3][0], performance[3][1]);
+    printf("|------------------------------------------------------------|\n");
+    printf("| non_pre priority | %16.3lf | %20.3lf |\n", performance[4][0], performance[4][1]);
+    printf("|------------------------------------------------------------|\n");
+    printf("| preempt priority | %16.3lf | %20.3lf |\n", performance[5][0], performance[5][1]);
+    printf("--------------------------------------------------------------\n");
 }
