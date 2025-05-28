@@ -13,7 +13,7 @@
 #define TIME_QUANTUM 2
 
 #define NUM_MULTILEVEL 3
-#define NUM_ALG 7
+#define NUM_ALG 8
 
 
 typedef struct {  
@@ -65,7 +65,7 @@ void QueuePush(Node** queue, Process* process);
 Process* QueuePop(Node** queue);
 void QueueBasedSchedule(Process *p, char mode);
 void MinHeapBasedSchedule(Process* p, char mode, bool preemption);
-bool IsFirstBigger(int parent, int child, char mode);
+bool IsFirstLesser(int parent, int child, char mode);
 void HeapBuild(char mode);
 void HeapPop(char mode);
 void CompareScheduleAlgorithms();
@@ -112,10 +112,11 @@ void main(int argc, char* argv[]) {
     MinHeapBasedSchedule(p, 'S', false);    // nonpreemtive SJF
     MinHeapBasedSchedule(p, 'S', true);     // preemtive SJF
     MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
-    MinHeapBasedSchedule(p, 'P', true);    // preemptive Priority
+    MinHeapBasedSchedule(p, 'P', true);     // preemptive Priority
 
     // EXTRA FUNCTIONS //
-    MLFQ_Scheduling(p);
+    MLFQ_Scheduling(p);                     // Multilevel Feedback Queue
+    MinHeapBasedSchedule(p, 'H', false);    // Highest Response Ratio Next
     // END //
 
     CompareScheduleAlgorithms();
@@ -229,7 +230,7 @@ void ProcessIO(char mode) {
                 io_head->remain_io_burst_time = io_head->io_burst_time;
                 if (mode == 'F' || mode == 'R')
                     QueuePush(&ready_queue, io_queue[i]->process);
-                else if (mode == 'S' || mode == 'P') 
+                else if (mode == 'S' || mode == 'P' || mode == 'H') 
                     QueuePush(&heap_wait_queue, io_queue[i]->process);
                 else if (mode == 'M')
                     QueuePush(&MLFQ[io_head->orig_queue], io_queue[i]->process);
@@ -386,6 +387,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     else printf("\nStart nonpreemptive ");
     if (mode == 'S') printf("SJF scheduling\n\n");
     else if (mode == 'P') printf("Start Priority scheduling\n\n");
+    else if (mode == 'H') printf("Start Highest Response Ratio Next scheduling\n\n");
     
     int prev = -2;
     int cur = -1;
@@ -407,7 +409,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
         if (preemption || ready_heap.size == 0 || popped) {
             HeapBuild(mode);
         }
-        
+
         if (ready_heap.arr[0] != NULL) {
             Process* head = ready_heap.arr[0];
  
@@ -467,11 +469,22 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     getchar();
 }
 
-bool IsFirstBigger(int parent, int child, char mode) {
+bool IsFirstLesser(int parent, int child, char mode) {
     if (mode == 'S')
         return (ready_heap.arr[parent]->remain_cpu_burst_time > ready_heap.arr[child]->remain_cpu_burst_time) ? true: false;
     else if (mode == 'P')
         return (ready_heap.arr[parent]->priority > ready_heap.arr[child]->priority) ? true: false;
+    else if (mode == 'H'){
+        int parent_burst = ready_heap.arr[parent]->cpu_burst_time;
+        int parent_waited = ready_heap.arr[parent]->waited_time;
+        double parent_ratio = (double)(parent_waited + parent_burst) / parent_burst;
+
+        int child_burst = ready_heap.arr[child]->cpu_burst_time;
+        int child_waited = ready_heap.arr[child]->waited_time;
+        double child_ratio = (double)(child_waited + child_burst) / child_burst;
+
+        return (parent_ratio < child_ratio) ? true: false;
+    }
 }
 
 void HeapBuild(char mode){  // reHeapUp
@@ -484,7 +497,7 @@ void HeapBuild(char mode){  // reHeapUp
         int child = ready_heap.size;
         while (child > 0) {
             int parent = (child - 1) / 2;
-            if (IsFirstBigger(parent, child, mode)) { // first가 크면 true, second가 크면 false
+            if (IsFirstLesser(parent, child, mode)) { // first가 크면 true, second가 크면 false
                 Process* temp = ready_heap.arr[child];
                 ready_heap.arr[child] = ready_heap.arr[parent];
                 ready_heap.arr[parent] = temp;
@@ -510,9 +523,9 @@ void HeapPop(char mode) {   // reHeapDown
         int second_child = 2 * parent + 2;
         int child = first_child;
         if (second_child < ready_heap.size)
-            child = IsFirstBigger(first_child, second_child, mode) ? second_child: first_child;
+            child = IsFirstLesser(first_child, second_child, mode) ? second_child: first_child;
 
-        if (IsFirstBigger(parent, child, mode)) { // first가 크면 true, second가 크면 false
+        if (IsFirstLesser(parent, child, mode)) { // first가 크면 true, second가 크면 false
             Process* temp = ready_heap.arr[child];
             ready_heap.arr[child] = ready_heap.arr[parent];
             ready_heap.arr[parent] = temp;
@@ -534,7 +547,7 @@ void PrintArray(IORequest *arr, short size) {
     // I/O request point와 device 출력하는 함수
     printf("[ ");
     for (short i = 1; i < size; i++) {
-        printf("(%d, #%d) ", arr[i].point, arr[i].device);
+        printf("(%d, #%d), ", arr[i].point, arr[i].device);
     }
     printf("]\n");
 }
@@ -578,16 +591,17 @@ void CompareScheduleAlgorithms() {
         "preemptive SJF",
         "non_pre priority",
         "preemptive priority",
-        "MLFQ"
+        "MultiLv FB Queue",
+        "Highest Res Ratio Next"
     };
 
-    printf("-----------------------------------------------------------------\n");
-    printf("| Algorithm           | Avg. waited time | Avg. turnaround time |\n");
+    printf("--------------------------------------------------------------------\n");
+    printf("| Algorithm              | Avg. waited time | Avg. turnaround time |\n");
     for (int i = 0; i < NUM_ALG; i++) {
-        printf("|---------------------------------------------------------------|\n");
-        printf("| %-19s | %16.3lf | %20.3lf |\n", algorithms[i], performance[i][0], performance[i][1]);
+        printf("|------------------------------------------------------------------|\n");
+        printf("| %-22s | %16.3lf | %20.3lf |\n", algorithms[i], performance[i][0], performance[i][1]);
     }
-    printf("-----------------------------------------------------------------\n");
+    printf("--------------------------------------------------------------------\n");
 }
 
 void MLFQ_Scheduling(Process *p) {
