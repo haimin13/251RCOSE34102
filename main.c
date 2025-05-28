@@ -10,7 +10,10 @@
 #define MAX_IO_BURST_TIME 3
 #define MAX_IO_REQUEST 4
 #define NUM_IO_DEVICES 2
-#define TIME_QUANTUM 4
+#define TIME_QUANTUM 2
+
+#define NUM_MULTILEVEL 3
+#define NUM_ALG 7
 
 
 typedef struct {  
@@ -31,10 +34,13 @@ typedef struct {
     short remain_io_burst_time;
     short waited_time;
     short finished_time;
+    short orig_queue;
+    short age;
 } Process;
 
 typedef struct Node {
     Process* process;
+    struct Node *prev;
     struct Node *next;
 } Node;
 
@@ -42,7 +48,6 @@ typedef struct Heap {
     Process* arr[NUM_PROCESS];
     int size;
 } Heap;
-
 
 int Max(int a, int b);
 int Min(int a, int b);
@@ -63,24 +68,28 @@ bool IsFirstBigger(int parent, int child, char mode);
 void HeapBuild(char mode);
 void HeapPop(char mode);
 void CompareScheduleAlgorithms();
-
+void MLFQ_Scheduling(Process *p);
+Node* NodeRemove(Node** queue, Node* node);
+void QueueTraverse(Node** queue);
 
 int unfinished = NUM_PROCESS;
 Node *ready_queue = NULL;
 Node *io_queue[NUM_IO_DEVICES] = {NULL, };
 Node *heap_wait_queue = NULL;
 Heap ready_heap = { NULL, };
-double performance[6][2];
+double performance[NUM_ALG][2];
 int idx = 0;
+Node* MLFQ[NUM_MULTILEVEL] = { NULL, };
 
-char reason[][30] = {
+char reason[][40] = {
     "(Scheduling Start)",
     "(Process Finished)",
     "(I/O Requested)",
     "(Time Slice Expired)",
     "(Ready Queue Filled)",
     "(Preempted)",
-    "(All Process Finished)"
+    "(All Process Finished)",
+    "(Higher Priority Queue Filled)"
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -102,6 +111,10 @@ void main(int argc, char* argv[]) {
     MinHeapBasedSchedule(p, 'S', true);     // preemtive SJF
     MinHeapBasedSchedule(p, 'P', false);    // nonpreemptive Priority
     MinHeapBasedSchedule(p, 'P', true);    // preemptive Priority
+
+    // EXTRA FUNCTIONS //
+    MLFQ_Scheduling(p);
+    // END //
 
     CompareScheduleAlgorithms();
     FreeMemory(p);
@@ -131,6 +144,8 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
         p[i].remain_io_burst_time = p[i].io_burst_time;
         p[i].waited_time = 0;
         p[i].finished_time = 0;
+        p[i].orig_queue = 0;
+        p[i].age = 0;
         if (p[i].cpu_burst_time > 1) {
             int num_io_request = rand() % (Min(MAX_IO_REQUEST, Max(1, p[i].cpu_burst_time - 2)) + 1); // 0번에서 가능한 경우 최대 3번 발생.
             p[i].num_io_request = num_io_request;
@@ -216,6 +231,8 @@ void ProcessIO(char mode) {
                     QueuePush(&ready_queue, io_queue[i]->process);
                 else if (mode == 'S' || mode == 'P') 
                     QueuePush(&heap_wait_queue, io_queue[i]->process);
+                else if (mode == 'M')
+                    QueuePush(&MLFQ[io_head->orig_queue], io_queue[i]->process);
                 QueuePop(&io_queue[i]);
             }
         }
@@ -225,17 +242,19 @@ void ProcessIO(char mode) {
 void QueuePush(Node** queue, Process* process) {
     Node *new_node = malloc(sizeof(Node));
     new_node->process = process;
+    new_node->prev = NULL;
     new_node->next = NULL;
     if (*queue == NULL) {
         *queue = new_node;
     }
     else {
         Node* cursor = *queue;
-        while (cursor->next != NULL) {
+        while (cursor->next != NULL) 
             cursor = cursor->next;
-        }
         cursor->next = new_node;
+        new_node->prev = cursor;
     }
+    //QueueTraverse(queue);
 }
 
 Process* QueuePop(Node** queue) {
@@ -243,10 +262,17 @@ Process* QueuePop(Node** queue) {
         printf("Queue is Empty!\n");
         return NULL;
     }
-    Node* temp = *queue;
     Process* out = (*queue)->process;
-    *queue = (*queue)->next;
+    Node* temp = (*queue);
+    if ((*queue)->next != NULL) {
+        (*queue)->next->prev = NULL;
+        (*queue) = (*queue)->next;
+    }
+    else {
+        (*queue) = NULL;
+    }
     free(temp);
+    //QueueTraverse(queue);
     return out;
 }
 
@@ -402,7 +428,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
                 printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
             else if (!popped && (prev != cur))
                 printf("%3d |-------- %s\n", time, reason[5]);  // preempted
-            
+
             if (head->remain_cpu_burst_time == 0) {
                 unfinished--;
                 head->finished_time = time + 1;
@@ -534,7 +560,7 @@ void FreeMemory(Process *p) {
 }
 
 void CompareScheduleAlgorithms() {
-    char algorithms[7][25] = {
+    char algorithms[NUM_ALG][25] = {
         "FCFS",
         "Round Robin",
         "non-pre SJF",
@@ -546,9 +572,159 @@ void CompareScheduleAlgorithms() {
 
     printf("-----------------------------------------------------------------\n");
     printf("| Algorithm           | Avg. waited time | Avg. turnaround time |\n");
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < NUM_ALG; i++) {
         printf("|---------------------------------------------------------------|\n");
         printf("| %-19s | %16.3lf | %20.3lf |\n", algorithms[i], performance[i][0], performance[i][1]);
     }
     printf("-----------------------------------------------------------------\n");
+}
+
+void MLFQ_Scheduling(Process *p) {
+    printf("\nStart Multi Level Feedback Queue Scheduling\n\n");
+    
+    int prev = -2;
+    int cur = -1;
+    int circum = 0;
+    int time = 0;
+    int time_spent = 0;
+    int arrived = 0;
+    int cur_queue = 0;
+    int starvation = 100;
+    int timeQuantum[NUM_MULTILEVEL] = {TIME_QUANTUM, TIME_QUANTUM * 2, MAX_CPU_BURST_TIME + 1};
+
+    printf("time| Process\n");
+    printf("%3d |-------- %s\n", time, reason[0]);
+
+    while (unfinished > 0) {
+        while (arrived < NUM_PROCESS) {
+            if (p[arrived].arrival_time == time) {
+                QueuePush(&MLFQ[0], &p[arrived]);
+                arrived++;
+            }
+            else break;
+        }
+        for (int i = 0; i < 3; i++) {
+            cur_queue = i;
+            if (MLFQ[i] != NULL) break;
+        }
+        if (MLFQ[cur_queue] != NULL) {
+            Process* head = MLFQ[cur_queue]->process;
+
+            head->remain_cpu_burst_time--;
+            time_spent++;
+            
+            for (int i = cur_queue; i < 3; i++) {
+                Node* cursor;
+                if (i == cur_queue)
+                    cursor = MLFQ[i]->next;
+                else
+                    cursor = MLFQ[i];
+                while (cursor != NULL) {
+                    cursor->process->waited_time++;
+                    cursor->process->age++;
+                    if (i > 0 && cursor->process->age >= starvation) {
+
+                        Process* temp = cursor->process;
+                        Node* temp2 = cursor;
+                    
+                        cursor = cursor->next;
+                        NodeRemove(&MLFQ[i], temp2);
+
+                        temp->age = 0;
+                        QueuePush(&MLFQ[i - 1], temp);
+                    }
+                    else
+                        cursor = cursor->next;
+                }
+            }
+            ProcessIO('M');
+
+            cur = head->pid;
+            if (prev == -1) printf("%3d |-------- %s (Queue: %d)\n", time, reason[4], cur_queue);  // ready queue filled
+
+            if (head->remain_cpu_burst_time == 0) {
+                unfinished--;
+                head->finished_time = time + 1;
+                QueuePop(&MLFQ[cur_queue]);
+                time_spent = 0;
+                circum = 1;         // process finished
+                if (unfinished == 0)
+                    circum = 6;     // all process finished
+            }
+            else if (head->io_request_points[head->remain_io_request].point == head->remain_cpu_burst_time) {
+                head->orig_queue = cur_queue;
+                QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head);
+                QueuePop(&MLFQ[cur_queue]);
+                time_spent = 0;
+                circum = 2;         // I/O requested
+            }
+            else if (time_spent == timeQuantum[cur_queue]) { // if mode == 'F', never satisfy this condition.
+                QueuePop(&MLFQ[cur_queue]);
+                if (cur_queue < NUM_MULTILEVEL - 1)
+                    QueuePush(&MLFQ[cur_queue + 1], head);
+                else
+                    QueuePush(&MLFQ[cur_queue], head);
+                time_spent = 0;
+                circum = 3;         // time slice expired
+            }
+            else {
+                for (int i = 0; i < cur_queue; i++) { // higher priority queue has been filled.
+                    if (MLFQ[i] != NULL) {
+                        QueuePop(&MLFQ[cur_queue]);
+                        QueuePush(&MLFQ[cur_queue], head);
+                        time_spent = 0;
+                        circum = 7;
+                        break;
+                    }
+                }
+            }
+        }
+        else {
+            ProcessIO('M');
+            cur = -1;
+        }
+        if (prev != cur) {
+            if (cur == -1)
+                printf("    | idle\n");
+            else
+                printf("    | P_%d\n", cur);
+        }
+        if (circum) {
+            printf("%3d |-------- %s (Queue: %d)\n", time + 1, reason[circum], cur_queue);
+            if (circum == 3) cur = -2;  
+            circum = 0;
+        }
+        prev = cur;
+        time++;
+    }
+    Evaluate(p);
+    ResetProcess(p);
+}
+
+Node* NodeRemove(Node** queue, Node* node) {
+    if (node == NULL) return NULL;
+
+    Node* next = node->next;
+
+    if (node->prev == NULL) 
+        *queue = node->next;
+    else {
+        node->prev->next = node->next;
+    }
+    if (node->next != NULL)
+        node->next->prev = node->prev;
+    
+    free(node);
+    //QueueTraverse(queue);
+    return next;
+}
+
+void QueueTraverse(Node** queue) {
+    if ((*queue) == NULL) return;
+    Node* cursor = *queue;
+    while (cursor != NULL) {
+        printf("%d ", cursor->process->pid);
+        cursor = cursor->next;
+    }
+    printf("\n");
 }
