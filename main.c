@@ -4,13 +4,13 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define NUM_PROCESS 8
+#define NUM_PROCESS 20
 #define MAX_ARRIVAL_TIME 10
-#define MAX_CPU_BURST_TIME 15
+#define MAX_CPU_BURST_TIME 20
 #define MAX_IO_BURST_TIME 3
-#define MAX_IO_REQUEST 3
+#define MAX_IO_REQUEST 4
 #define NUM_IO_DEVICES 2
-#define TIME_QUANTUM 3
+#define TIME_QUANTUM 4
 
 
 typedef struct {  
@@ -94,7 +94,6 @@ void main(int argc, char* argv[]) {
 
     // Process arrival check overhead를 줄이기 위해 정렬
     qsort(p, NUM_PROCESS, sizeof(Process), CompareArrival);
-    PrintProcess(p);
 
     QueueBasedSchedule(p, 'F'); // FCFS Schedule
     QueueBasedSchedule(p, 'R'); // RR Schedule
@@ -251,6 +250,23 @@ Process* QueuePop(Node** queue) {
     return out;
 }
 
+/*///////////////////////////////////////////////////////////////////////////////////////
+    # Scheduling Function for FCFS & Round Robin #
+
+    - Pointer p points to an array of processes sorted by arrival time.
+    - mode indicates whether it is FCFS or RR.
+        | In the case of FCFS, set the time quantum greater than max_cpu_burst_time,
+        | so that time slice expiration does not occur.
+    - prev indicates pid of process run in previous time unit. initially -2, -1 if it was idle.
+    - cur indicates pid of currently running process. -1 if idle.
+        | if prev not equals cur, then context switch happened.
+    - circum indicates circumstance of context switch
+    - time_spent indicates the time of current process running continuously.
+        | if time_spent equals timeQuantum, then context switch occur due to time slice expiration.
+    - arrived indicates number of arrived process to the ready state for the first time
+
+///////////////////////////////////////////////////////////////////////////////////////*/
+
 void QueueBasedSchedule(Process *p, char mode) {
     int timeQuantum;
     if (mode == 'F') {
@@ -292,18 +308,19 @@ void QueueBasedSchedule(Process *p, char mode) {
             ProcessIO(mode);
 
             cur = head->pid;
-            if (prev == -1) printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
+            if (prev == -1)
+                printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
 
             if (head->remain_cpu_burst_time == 0) {
                 unfinished--;
                 head->finished_time = time + 1;
                 QueuePop(&ready_queue);
                 time_spent = 0;
-                circum = 1; // process finished
+                circum = 1;     // process finished
                 if (unfinished == 0) circum = 6;    // all process finished
             }
             else if (head->io_request_points[head->remain_io_request].point == head->remain_cpu_burst_time) {
-                QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head);
+                QueuePush(&io_queue[head->io_request_points[head->remain_io_request].device], head); // assign to required IO device wait queue
                 QueuePop(&ready_queue);
                 time_spent = 0;
                 circum = 2; // I/O requested
@@ -381,11 +398,11 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
             ProcessIO(mode);
 
             cur = head->pid;
-            if (prev == -1) printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
-            else if (!popped && (prev != cur)) {
+            if (prev == -1)
+                printf("%3d |-------- %s\n", time, reason[4]);  // ready queue filled
+            else if (!popped && (prev != cur))
                 printf("%3d |-------- %s\n", time, reason[5]);  // preempted
-            }
-
+            
             if (head->remain_cpu_burst_time == 0) {
                 unfinished--;
                 head->finished_time = time + 1;
@@ -485,6 +502,7 @@ int Min(int a, int b) {
 }
 
 void PrintArray(IORequest *arr, short size) {
+    // I/O request point와 device 출력하는 함수
     printf("[ ");
     for (short i = 1; i < size; i++) {
         printf("(%d, #%d) ", arr[i].point, arr[i].device);
@@ -516,19 +534,21 @@ void FreeMemory(Process *p) {
 }
 
 void CompareScheduleAlgorithms() {
-    printf("--------------------------------------------------------------\n");
-    printf("| Algorithm        | Avg. waited time | Avg. turnaround time |\n");
-    printf("|------------------------------------------------------------|\n");
-    printf("| FCFS             | %16.3lf | %20.3lf |\n", performance[0][0], performance[0][1]);
-    printf("|------------------------------------------------------------|\n");
-    printf("| Round Robin      | %16.3lf | %20.3lf |\n", performance[1][0], performance[1][1]);
-    printf("|------------------------------------------------------------|\n");
-    printf("| non-pre SJF      | %16.3lf | %20.3lf |\n", performance[2][0], performance[2][1]);
-    printf("|------------------------------------------------------------|\n");
-    printf("| preempt SJF      | %16.3lf | %20.3lf |\n", performance[3][0], performance[3][1]);
-    printf("|------------------------------------------------------------|\n");
-    printf("| non_pre priority | %16.3lf | %20.3lf |\n", performance[4][0], performance[4][1]);
-    printf("|------------------------------------------------------------|\n");
-    printf("| preempt priority | %16.3lf | %20.3lf |\n", performance[5][0], performance[5][1]);
-    printf("--------------------------------------------------------------\n");
+    char algorithms[7][25] = {
+        "FCFS",
+        "Round Robin",
+        "non-pre SJF",
+        "preemptive SJF",
+        "non_pre priority",
+        "preemptive priority",
+        "MLFQ"
+    };
+
+    printf("-----------------------------------------------------------------\n");
+    printf("| Algorithm           | Avg. waited time | Avg. turnaround time |\n");
+    for (int i = 0; i < 7; i++) {
+        printf("|---------------------------------------------------------------|\n");
+        printf("| %-19s | %16.3lf | %20.3lf |\n", algorithms[i], performance[i][0], performance[i][1]);
+    }
+    printf("-----------------------------------------------------------------\n");
 }
