@@ -9,7 +9,7 @@
 #define MAX_CPU_BURST_TIME 20
 #define MAX_IO_BURST_TIME 3
 #define MAX_IO_REQUEST 4
-#define NUM_IO_DEVICES 2
+#define NUM_IO_DEVICES 4
 #define TIME_QUANTUM 2
 
 #define NUM_MULTILEVEL 3
@@ -53,6 +53,7 @@ int Max(int a, int b);
 int Min(int a, int b);
 void PrintArray(IORequest *arr, short size);
 void PrintProcess(Process *p);
+void PrintExtraInformation(Process *p);
 int CompareArrival(const void* first, const void* second);
 void FreeMemory(Process *p);
 void CreateProcess(Process *p, int argc, char* argv[]);
@@ -99,10 +100,11 @@ char reason[][40] = {
 void main(int argc, char* argv[]) {
     Process p[NUM_PROCESS];
     CreateProcess(p, argc, argv);
-    PrintProcess(p);
 
     // Process arrival check overhead를 줄이기 위해 정렬
     qsort(p, NUM_PROCESS, sizeof(Process), CompareArrival);
+    PrintProcess(p);
+    PrintExtraInformation(p);
 
     QueueBasedSchedule(p, 'F'); // FCFS Schedule
     QueueBasedSchedule(p, 'R'); // RR Schedule
@@ -131,7 +133,6 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
     for (int i = 0; i < NUM_PROCESS; i++) {
         if (argc > 1 && strcmp(argv[1], "manual") == 0) {
             ManualCreate(p, i);
-            // NUM_PROCESS, MAX값들도 manually set 할 수 있게 바꿔야 하나
         }
         else {
             p[i].priority = rand() % num_priority + 1;
@@ -147,7 +148,7 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
         p[i].orig_queue = 0;
         p[i].age = 0;
         if (p[i].cpu_burst_time > 1) {
-            int num_io_request = rand() % (Min(MAX_IO_REQUEST, Max(1, p[i].cpu_burst_time - 2)) + 1); // 0번에서 가능한 경우 최대 3번 발생.
+            int num_io_request = rand() % (Min(MAX_IO_REQUEST, Max(1, p[i].cpu_burst_time - 2)) + 1); // 0 ~ MAX_IO_REQUEST 만큼 발생 (가능한 경우)
             p[i].num_io_request = num_io_request;
             p[i].remain_io_request = num_io_request;
             p[i].io_request_points = malloc(sizeof(IORequest) * (num_io_request + 1)); // 계산 편의를 위해 인덱스 0에 가비지 값.
@@ -157,14 +158,12 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
             while(j < num_io_request) {
                 // 1 ~ cpu_burst_time - 1의 범위에서 io request 횟수 만큼 중복 없이 수 뽑기.
                 int point = rand() % (p[i].cpu_burst_time - 1) + 1;
-                // num_io_request이 높으면 중복 자주 뽑혀서 시간 오래걸릴 수도 있다.
-                // 더 효율적인 알고리즘이 있을까?
                 if (temp[point] == 0) { 
                     temp[point] = 1;
                     j++;
                 }
             }
-            for (j = p[i].cpu_burst_time - 1; j > 0; j--) {
+            for (int j = p[i].cpu_burst_time - 1; j > 0; j--) {
                 if (temp[j] == 1) {
                     p[i].io_request_points[num_io_request].point = j;
                     p[i].io_request_points[num_io_request--].device = rand() % NUM_IO_DEVICES;
@@ -176,7 +175,7 @@ void CreateProcess(Process *p, int argc, char* argv[]) {
             p[i].remain_io_request = 0;
             p[i].io_request_points = malloc(sizeof(IORequest));
         }
-        p[i].io_request_points[0].point = -1;
+        p[i].io_request_points[0].point = -1;   // dummy values
         p[i].io_request_points[0].device = -1;
     }
     return;
@@ -198,6 +197,7 @@ void ResetProcess(Process *p) {
         p[i].remain_cpu_burst_time = p[i].cpu_burst_time;
         p[i].waited_time = 0;
         p[i].finished_time = 0;
+        p[i].age = 0;
     }
     unfinished = NUM_PROCESS;
 }
@@ -378,6 +378,7 @@ void QueueBasedSchedule(Process *p, char mode) {
     }
     Evaluate(p);
     ResetProcess(p);
+    getchar();
 }
 
 void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
@@ -406,6 +407,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
         if (preemption || ready_heap.size == 0 || popped) {
             HeapBuild(mode);
         }
+        
         if (ready_heap.arr[0] != NULL) {
             Process* head = ready_heap.arr[0];
  
@@ -462,6 +464,7 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
     }
     Evaluate(p);
     ResetProcess(p);
+    getchar();
 }
 
 bool IsFirstBigger(int parent, int child, char mode) {
@@ -545,6 +548,14 @@ void PrintProcess(Process *p) {
             p[i].arrival_time, p[i].cpu_burst_time, p[i].num_io_request);
     }
     printf("---------------------------------------------------------\n\n");
+}
+
+void PrintExtraInformation(Process *p) {
+    for (int i = 0; i < NUM_PROCESS; i++) {
+        printf("P %2d | I/O Burst: %d | Req: ", p[i].pid, p[i].io_burst_time);
+        PrintArray(p[i].io_request_points, p[i].num_io_request+1);
+    }
+    printf("\n");
 }
 
 int CompareArrival(const void* first, const void* second) {
@@ -699,6 +710,7 @@ void MLFQ_Scheduling(Process *p) {
     }
     Evaluate(p);
     ResetProcess(p);
+    getchar();
 }
 
 Node* NodeRemove(Node** queue, Node* node) {
