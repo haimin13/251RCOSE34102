@@ -4,8 +4,8 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define NUM_PROCESS 20
-#define MAX_ARRIVAL_TIME 10
+#define NUM_PROCESS 10
+#define MAX_ARRIVAL_TIME 5
 #define MAX_CPU_BURST_TIME 20
 #define MAX_IO_BURST_TIME 3
 #define MAX_IO_REQUEST 4
@@ -34,6 +34,7 @@ typedef struct {
     short remain_io_burst_time;
     short waited_time;
     short finished_time;
+    short first_serviced;
     short orig_queue;
     short age;
 } Process;
@@ -78,7 +79,7 @@ Node *ready_queue = NULL;
 Node *io_queue[NUM_IO_DEVICES] = {NULL, };
 Node *heap_wait_queue = NULL;
 Heap ready_heap = { NULL, };
-double performance[NUM_ALG][2];
+double performance[NUM_ALG][3];
 int idx = 0;
 Node* MLFQ[NUM_MULTILEVEL] = { NULL, };
 
@@ -204,19 +205,22 @@ void ResetProcess(Process *p) {
 }
 
 void Evaluate(Process *p) {
-    int sum_waiting = 0, sum_turnaround = 0;
+    int sum_waiting = 0, sum_turnaround = 0, sum_response = 0;
     for (int i = 0; i < NUM_PROCESS; i++) {
         sum_waiting += p[i].waited_time;
         sum_turnaround += (p[i].finished_time - p[i].arrival_time);
+        sum_response += (p[i].first_serviced - p[i].arrival_time);
     }
     double avg_wait = (double)sum_waiting / NUM_PROCESS;
     double avg_turnaround = (double)sum_turnaround / NUM_PROCESS;
+    double avg_response = (double)sum_response / NUM_PROCESS;
     printf("\naverage waiting time: %.2lf\n", avg_wait);
     printf("average turnaround time: %.2lf\n", avg_turnaround);
     printf("==============================================\n\n");
 
     performance[idx][0] = avg_wait;
     performance[idx][1] = avg_turnaround;
+    performance[idx][2] = avg_response;
     idx++;
 }
 
@@ -324,6 +328,8 @@ void QueueBasedSchedule(Process *p, char mode) {
         }
         if (ready_queue != NULL) {
             Process* head = ready_queue->process;
+            if (head->cpu_burst_time == head->remain_cpu_burst_time)
+                head->first_serviced = time;
 
             head->remain_cpu_burst_time--;
             time_spent++;
@@ -412,6 +418,8 @@ void MinHeapBasedSchedule(Process* p, char mode, bool preemption) {
 
         if (ready_heap.arr[0] != NULL) {
             Process* head = ready_heap.arr[0];
+            if (head->cpu_burst_time == head->remain_cpu_burst_time)
+                head->first_serviced = time;
  
             head->remain_cpu_burst_time--;
             int i = 1;
@@ -595,13 +603,13 @@ void CompareScheduleAlgorithms() {
         "Highest Res Ratio Next"
     };
 
-    printf("--------------------------------------------------------------------\n");
-    printf("| Algorithm              | Avg. waited time | Avg. turnaround time |\n");
+    printf("--------------------------------------------------------------------------\n");
+    printf("| Algorithm              | Avg. waited | Avg. turnaround | Avg. Response |\n");
     for (int i = 0; i < NUM_ALG; i++) {
-        printf("|------------------------------------------------------------------|\n");
-        printf("| %-22s | %16.3lf | %20.3lf |\n", algorithms[i], performance[i][0], performance[i][1]);
+        printf("|------------------------------------------------------------------------|\n");
+        printf("| %-22s | %11.3lf | %15.3lf | %13.3lf |\n", algorithms[i], performance[i][0], performance[i][1], performance[i][2]);
     }
-    printf("--------------------------------------------------------------------\n");
+    printf("--------------------------------------------------------------------------\n");
 }
 
 void MLFQ_Scheduling(Process *p) {
@@ -634,6 +642,8 @@ void MLFQ_Scheduling(Process *p) {
         }
         if (MLFQ[cur_queue] != NULL) {
             Process* head = MLFQ[cur_queue]->process;
+            if (head->cpu_burst_time == head->remain_cpu_burst_time)
+                head->first_serviced = time;
 
             head->remain_cpu_burst_time--;
             time_spent++;
